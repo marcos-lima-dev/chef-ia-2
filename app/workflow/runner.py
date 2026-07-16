@@ -5,18 +5,31 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.workflow.state import WorkflowState
-from app.workflow.nodes import intent_analyzer_node, chef_node, editor_node
+from app.workflow.nodes import intent_analyzer_node, chef_node, editor_node, should_continue
 
 
 def create_workflow():
     builder = StateGraph(WorkflowState)
+    
+    # Adiciona os nós
     builder.add_node("intent_analyzer", intent_analyzer_node)
     builder.add_node("chef", chef_node)
     builder.add_node("editor", editor_node)
-    builder.set_entry_point("intent_analyzer")
-    builder.add_edge("intent_analyzer", "chef")
+    
+    # Adiciona uma aresta condicional após o analisador
+    builder.add_conditional_edges(
+        "intent_analyzer",
+        should_continue,
+        {
+            "continue": "chef",
+            "pause": END,  # Se houver interrupção, termina aqui
+        }
+    )
+    
     builder.add_edge("chef", "editor")
     builder.add_edge("editor", END)
+    builder.set_entry_point("intent_analyzer")
+    
     checkpointer = MemorySaver()
     compiled = builder.compile(checkpointer=checkpointer)
     return compiled, checkpointer
@@ -45,13 +58,12 @@ class WorkflowRunner:
             "error": None,
         }
 
-        print(">>> [RUNNER] Iniciando workflow...")
         result = self.graph.invoke(initial_state, config=config)
-        print(">>> [RUNNER] Resultado do invoke:", result)
+        print(f">>> [RUNNER] Resultado do start: {result}")
 
         # Verifica se o marcador de interrupção está presente
         if result.get("_interrupt", False):
-            print(">>> [RUNNER] Detectado marcador de interrupção!")
+            print(">>> [RUNNER] Interrupção detectada!")
             return {
                 "status": "interrupted",
                 "order_id": order_id,
@@ -59,7 +71,6 @@ class WorkflowRunner:
                 "current_step": result.get("current_step", ""),
             }
 
-        # Se não há interrupção, terminou
         return {
             "status": "completed",
             "order_id": order_id,
@@ -73,13 +84,13 @@ class WorkflowRunner:
             raise ValueError(f"Thread não encontrada para o pedido {order_id}")
         config = {"configurable": {"thread_id": thread_id}}
 
-        # Obtém o estado atual via get_state
+        # Obtém o estado atual
         state_snapshot = self.graph.get_state(config)
         if not state_snapshot:
             raise ValueError(f"Estado não encontrado para o pedido {order_id}")
 
         current_state = state_snapshot.values
-        print(">>> [RUNNER] Estado antes de atualizar:", current_state)
+        print(f">>> [RUNNER] Estado antes de atualizar: {current_state}")
 
         # Atualiza as intenções
         intentions = current_state.get("intentions", [])
@@ -94,26 +105,16 @@ class WorkflowRunner:
             "intentions": intentions,
             "confirmed_chips": confirmed_chips,
             "_interrupt": False,
-            "_skip_intent_analyzer": True,
+            "_skip_intent_analyzer": True,  # Pula a análise na retomada
         }
-        print(">>> [RUNNER] Estado atualizado:", updated_state)
+        print(f">>> [RUNNER] Estado atualizado: {updated_state}")
 
         # Atualiza o estado no checkpointer
         self.graph.update_state(config, updated_state)
 
-        # Invoca novamente para continuar
-        print(">>> [RUNNER] Retomando workflow...")
+        # Invoca novamente para continuar (o grafo vai do nó atual)
         result = self.graph.invoke(None, config=config)
-        print(">>> [RUNNER] Resultado da retomada:", result)
-
-        # Verifica se há nova interrupção (não esperado)
-        if result.get("_interrupt", False):
-            return {
-                "status": "interrupted",
-                "order_id": order_id,
-                "intentions": result.get("intentions", []),
-                "current_step": result.get("current_step", ""),
-            }
+        print(f">>> [RUNNER] Resultado da retomada: {result}")
 
         return {
             "status": "completed",

@@ -20,11 +20,21 @@ class OrderOrchestrator:
         self.workflow_runner = WorkflowRunner()
 
     def create_order(self, session_id: str, message: str) -> Dict[str, Any]:
+        """Cria um novo pedido e inicia o workflow."""
+        # 1. Cria order no WorkflowManager (vai para INTERPRETADO)
         order = self.workflow_manager.create_order(session_id, message)
-        runner_result = self.workflow_runner.start(order.id, session_id, message)
+        print(f">>> [ORCHESTRATOR] Order criada: {order.id}, estado: {order.current_state.value}")
 
+        # 2. Inicia o workflow no LangGraph
+        runner_result = self.workflow_runner.start(order.id, session_id, message)
+        print(f">>> [ORCHESTRATOR] Runner result: {runner_result}")
+
+        # 3. Se o runner interrompeu, extrai as intenções e avança o estado
         if runner_result["status"] == "interrupted":
             intentions = runner_result.get("intentions", [])
+            print(f">>> [ORCHESTRATOR] Intenções extraídas: {intentions}")
+
+            # Publica evento de intenções extraídas
             event = self.event_publisher.create_event(
                 order_id=order.id,
                 event_type=EventType.INTENTIONS_EXTRACTED.value,
@@ -32,8 +42,12 @@ class OrderOrchestrator:
                 payload={"intentions": intentions}
             )
             self.event_publisher.publish(event)
-            self.workflow_manager.advance_state(order.id, EventType.INTENTIONS_EXTRACTED)
 
+            # Avança o estado para AGUARDANDO_CONFIRMACAO usando o método público
+            new_state = self.workflow_manager.advance_state(order.id, EventType.INTENTIONS_EXTRACTED)
+            print(f">>> [ORCHESTRATOR] Estado após advance_state: {new_state.value}")
+
+        # 4. Retorna o resultado
         return {
             "order_id": order.id,
             "status": runner_result["status"],
@@ -102,7 +116,7 @@ class OrderOrchestrator:
         if order.current_state != OrderState.FINALIZADO:
             raise InvalidStateError(f"Pedido ainda não finalizado. Estado: {order.current_state.value}")
 
-        # 🔥 Busca a proposta pelo order_id (pois _proposals usa proposal.id como chave)
+        # Busca a proposta pelo order_id
         proposal_content = None
         for proposal in self.workflow_manager._proposals.values():
             if proposal.order_id == order_id:
@@ -113,5 +127,5 @@ class OrderOrchestrator:
             "order_id": order_id,
             "status": order.current_state.value,
             "proposal": proposal_content,
-            "result": proposal_content,  # Usa a proposta como resultado por enquanto
+            "result": proposal_content,
         }

@@ -12,6 +12,6 @@ class WorkflowState(TypedDict, total=False):
     final_response: Optional[str]
     current_step: str
     error: Optional[str]
-    # Campos internos para controle (não retornados pelos nós)
+   
     _interrupt: bool
     _skip_intent_analyzer: bool
