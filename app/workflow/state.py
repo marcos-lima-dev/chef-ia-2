@@ -9,9 +9,9 @@ class WorkflowState(TypedDict, total=False):
     confirmed_chips: List[Dict[str, Any]]
     proposal: Optional[str]
     proposal_version: int
+    analyses: List[Dict[str, Any]]
     final_response: Optional[str]
     current_step: str
     error: Optional[str]
-   
     _interrupt: bool
     _skip_intent_analyzer: bool

@@ -5,31 +5,34 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.workflow.state import WorkflowState
-from app.workflow.nodes import intent_analyzer_node, chef_node, editor_node, should_continue
+from app.workflow.nodes import (
+    intent_analyzer_node,
+    chef_node,
+    maestro_node,
+    editor_node,
+    should_continue,
+)
 
 
 def create_workflow():
     builder = StateGraph(WorkflowState)
-    
-    # Adiciona os nós
+
     builder.add_node("intent_analyzer", intent_analyzer_node)
     builder.add_node("chef", chef_node)
+    builder.add_node("maestro", maestro_node)
     builder.add_node("editor", editor_node)
-    
-    # Adiciona uma aresta condicional após o analisador
+
     builder.add_conditional_edges(
         "intent_analyzer",
         should_continue,
-        {
-            "continue": "chef",
-            "pause": END,  # Se houver interrupção, termina aqui
-        }
+        {"continue": "chef", "pause": END}
     )
-    
-    builder.add_edge("chef", "editor")
+
+    builder.add_edge("chef", "maestro")
+    builder.add_edge("maestro", "editor")
     builder.add_edge("editor", END)
     builder.set_entry_point("intent_analyzer")
-    
+
     checkpointer = MemorySaver()
     compiled = builder.compile(checkpointer=checkpointer)
     return compiled, checkpointer
@@ -53,6 +56,7 @@ class WorkflowRunner:
             "confirmed_chips": [],
             "proposal": None,
             "proposal_version": 0,
+            "analyses": [],
             "final_response": None,
             "current_step": "start",
             "error": None,
@@ -61,7 +65,6 @@ class WorkflowRunner:
         result = self.graph.invoke(initial_state, config=config)
         print(f">>> [RUNNER] Resultado do start: {result}")
 
-        # Verifica se o marcador de interrupção está presente
         if result.get("_interrupt", False):
             print(">>> [RUNNER] Interrupção detectada!")
             return {
@@ -84,7 +87,6 @@ class WorkflowRunner:
             raise ValueError(f"Thread não encontrada para o pedido {order_id}")
         config = {"configurable": {"thread_id": thread_id}}
 
-        # Obtém o estado atual
         state_snapshot = self.graph.get_state(config)
         if not state_snapshot:
             raise ValueError(f"Estado não encontrado para o pedido {order_id}")
@@ -92,27 +94,23 @@ class WorkflowRunner:
         current_state = state_snapshot.values
         print(f">>> [RUNNER] Estado antes de atualizar: {current_state}")
 
-        # Atualiza as intenções
         intentions = current_state.get("intentions", [])
         for chip in confirmed_chips:
             for intent in intentions:
                 if intent.get("value") == chip.get("label"):
                     intent["confirmed"] = True
 
-        # Prepara o novo estado: remove o marcador, adiciona flag de skip
         updated_state = {
             **current_state,
             "intentions": intentions,
             "confirmed_chips": confirmed_chips,
             "_interrupt": False,
-            "_skip_intent_analyzer": True,  # Pula a análise na retomada
+            "_skip_intent_analyzer": True,
         }
         print(f">>> [RUNNER] Estado atualizado: {updated_state}")
 
-        # Atualiza o estado no checkpointer
         self.graph.update_state(config, updated_state)
 
-        # Invoca novamente para continuar (o grafo vai do nó atual)
         result = self.graph.invoke(None, config=config)
         print(f">>> [RUNNER] Resultado da retomada: {result}")
 
