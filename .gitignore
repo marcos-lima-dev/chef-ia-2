@@ -21,3 +21,4 @@ postgres_data/
 # Node (frontend futuro)
 node_modules/
 dist/
+.env
