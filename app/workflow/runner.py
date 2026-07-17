@@ -130,3 +130,13 @@ class WorkflowRunner:
         if not state:
             raise ValueError(f"Estado não encontrado para o pedido {order_id}")
         return state.values
+    
+
+    # Instância global (singleton)
+_default_runner = None
+
+def get_workflow_runner() -> WorkflowRunner:
+    global _default_runner
+    if _default_runner is None:
+        _default_runner = WorkflowRunner()
+    return _default_runner
