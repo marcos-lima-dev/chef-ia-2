@@ -1,5 +1,5 @@
 import uuid
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable, Awaitable
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -42,6 +42,16 @@ class WorkflowRunner:
     def __init__(self):
         self.graph, self.checkpointer = create_workflow()
         self._threads: Dict[str, str] = {}
+        self._event_callback: Optional[Callable[[str, dict], Awaitable[None]]] = None
+
+    def set_event_callback(self, callback: Callable[[str, dict], Awaitable[None]]):
+        """Define uma função assíncrona para receber eventos do workflow."""
+        self._event_callback = callback
+
+    async def _emit_event(self, order_id: str, event: dict):
+        """Emite um evento via callback, se definido."""
+        if self._event_callback:
+            await self._event_callback(order_id, event)
 
     def start(self, order_id: str, session_id: str, message: str) -> Dict[str, Any]:
         thread_id = f"thread_{uuid.uuid4().hex[:12]}"
@@ -61,6 +71,9 @@ class WorkflowRunner:
             "current_step": "start",
             "error": None,
         }
+
+        # Opcional: emitir evento de início
+        # asyncio.create_task(self._emit_event(order_id, {"type": "workflow_started"}))
 
         result = self.graph.invoke(initial_state, config=config)
         print(f">>> [RUNNER] Resultado do start: {result}")
@@ -114,6 +127,9 @@ class WorkflowRunner:
         result = self.graph.invoke(None, config=config)
         print(f">>> [RUNNER] Resultado da retomada: {result}")
 
+        # Opcional: emitir evento de conclusão
+        # asyncio.create_task(self._emit_event(order_id, {"type": "workflow_completed"}))
+
         return {
             "status": "completed",
             "order_id": order_id,
@@ -130,12 +146,13 @@ class WorkflowRunner:
         if not state:
             raise ValueError(f"Estado não encontrado para o pedido {order_id}")
         return state.values
-    
 
-    # Instância global (singleton)
-_default_runner = None
+
+# 🔥 Singleton (fora da classe)
+_default_runner: Optional[WorkflowRunner] = None
 
 def get_workflow_runner() -> WorkflowRunner:
+    """Retorna a instância única do WorkflowRunner."""
     global _default_runner
     if _default_runner is None:
         _default_runner = WorkflowRunner()
