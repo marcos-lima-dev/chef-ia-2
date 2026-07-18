@@ -1,37 +1,27 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
-from app.api.websocket.manager import ConnectionManager
-from app.services.order_orchestrator_persistent import OrderOrchestratorPersistent
-from app.infrastructure.database.base import get_db
-from sqlalchemy.orm import Session
-import asyncio
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from app.api.websocket.manager import manager  # 🔥 importa a instância global (NÃO CRIE UMA NOVA!)
+import json
 
 router = APIRouter()
-manager = ConnectionManager()
-
 
 @router.websocket("/ws/orders/{order_id}")
 async def websocket_endpoint(
     websocket: WebSocket,
     order_id: str,
 ):
-    """
-    Endpoint WebSocket para acompanhar um pedido em tempo real.
-
-    O cliente se conecta e recebe eventos de progresso, chips, decisões e resultado.
-    """
     await manager.connect(websocket, order_id)
-
-    # Opcional: enviar o estado atual do pedido ao conectar
-    # (pode ser implementado depois)
+    print(f">>> [WS] Cliente conectado ao pedido {order_id}")
 
     try:
-        # Mantém a conexão aberta ouvindo mensagens do cliente (para futuros comandos)
         while True:
-            # Aguarda mensagens do cliente (pode ser usado para confirmação via WS)
-            # Por enquanto, apenas mantém a conexão viva
+            # Mantém a conexão aberta
             data = await websocket.receive_text()
-            # Se quiser processar confirmações via WS, pode implementar aqui
-            # Exemplo: se data for {"action": "confirm", "chips": [...]}
-            pass
+            try:
+                msg = json.loads(data)
+                if msg.get("action") == "ping":
+                    await websocket.send_text(json.dumps({"type": "pong"}))
+            except:
+                pass
     except WebSocketDisconnect:
         manager.disconnect(websocket, order_id)
+        print(f">>> [WS] Cliente desconectado do pedido {order_id}")

@@ -66,3 +66,6 @@ class ConnectionManager:
             "type": "result_ready",
             "result": result,
         })
+
+# Instância global (singleton) do gerenciador
+manager = ConnectionManager()
