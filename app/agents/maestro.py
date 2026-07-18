@@ -1,18 +1,28 @@
 from typing import List, Dict, Any
 
-class Maestro:
-    """Coordena quais especialistas devem ser consultados."""
 
+class Maestro:
     def plan(self, intentions: List[Dict[str, Any]], proposal: str) -> List[str]:
-        """Retorna uma lista de nomes de especialistas a serem executados."""
         specialists = []
-        # Verifica se há objetivo de "leve" ou "saudável"
         for intent in intentions:
-            if intent.get("type") == "goal":
-                if intent.get("value") in ["leve", "saudável", "low-calorie"]:
+            intent_type = intent.get("type")
+            value = intent.get("value", "").lower()
+
+            if intent_type == "goal":
+                if value in ["leve", "saudável", "low-calorie"]:
                     specialists.append("nutritionist")
-            if intent.get("type") == "restriction":
-                if intent.get("value") in ["vegano", "vegetariano", "sem glúten", "low-carb"]:
+                if value in ["barato", "econômico", "low-cost"]:
+                    specialists.append("cost")
+                if value in ["rápido", "rápida"]:
+                    specialists.append("time")
+
+            if intent_type == "ingredient":
+                specialists.append("ingredients")
+
+            if intent_type == "restriction":
+                if value in ["vegano", "vegetariano", "sem glúten", "low-carb", "cetogênica"]:
                     specialists.append("diet")
-        # Se não houver especialistas, retorna vazio
-        return specialists
+                # Sempre executa restrições para verificar alergias
+                specialists.append("restrictions")
+
+        return list(set(specialists))

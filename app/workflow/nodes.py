@@ -4,7 +4,14 @@ from app.workflow.state import WorkflowState
 from app.agents.intent_analyzer import IntentAnalyzer
 from app.agents.chef import Chef
 from app.agents.maestro import Maestro
-from app.agents.specialists import Nutritionist
+from app.agents.specialists import (
+    Nutritionist,
+    IngredientsSpecialist,
+    DietSpecialist,
+    RestrictionsSpecialist,
+    CostSpecialist,
+    TimeSpecialist,
+)
 from app.agents.editor import Editor
 
 
@@ -15,7 +22,6 @@ def intent_analyzer_node(state: WorkflowState) -> Dict[str, Any]:
         return {}
 
     message = state.get("original_message", "")
-    order_id = state.get("order_id", "unknown")
     analyzer = IntentAnalyzer()
     intentions = analyzer.analyze(message)
     print(f">>> [NODE] Intenções extraídas: {intentions}")
@@ -44,22 +50,35 @@ def maestro_node(state: WorkflowState) -> Dict[str, Any]:
     print(">>> [NODE] maestro_node executando")
     intentions = state.get("intentions", [])
     proposal = state.get("proposal", "")
-    goals = [i["value"] for i in intentions if i["type"] == "goal"]
 
     maestro = Maestro()
     specialist_names = maestro.plan(intentions, proposal)
 
+    goals = [i["value"] for i in intentions if i["type"] == "goal"]
+    restrictions = [i["value"] for i in intentions if i["type"] == "restriction"]
+
     analyses = []
-    if "nutritionist" in specialist_names:
-        nutritionist = Nutritionist()
-        result = nutritionist.execute({"proposal": proposal, "goals": goals})
-        analyses.append({
-            "specialist": "nutritionist",
-            "analysis": result["analysis"],
-            "warnings": result["warnings"],
-            "suggestions": result["suggestions"],
-            "events": result["events"],
-        })
+    specialist_map = {
+        "nutritionist": Nutritionist(),
+        "ingredients": IngredientsSpecialist(),
+        "diet": DietSpecialist(),
+        "restrictions": RestrictionsSpecialist(),
+        "cost": CostSpecialist(),
+        "time": TimeSpecialist(),
+    }
+
+    for name in specialist_names:
+        if name in specialist_map:
+            print(f">>> [NODE] Executando especialista: {name}")
+            context = {"proposal": proposal, "goals": goals, "restrictions": restrictions}
+            result = specialist_map[name].execute(context)
+            analyses.append({
+                "specialist": name,
+                "analysis": result["analysis"],
+                "warnings": result["warnings"],
+                "suggestions": result["suggestions"],
+                "events": result["events"],
+            })
 
     return {
         "analyses": analyses,
