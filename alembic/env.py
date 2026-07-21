@@ -4,7 +4,8 @@ from sqlalchemy import pool
 from alembic import context
 
 # ⬇️ IMPORTA OS MODELOS PARA POPULAR O METADATA
-from app.infrastructure.database.models import *  # <-- ESSA LINHA É CRUCIAL
+from app.infrastructure.database.models import *
+from app.infrastructure.database.models_catalog import *
 from app.infrastructure.database.base import Base
 from app.core.config import settings
 

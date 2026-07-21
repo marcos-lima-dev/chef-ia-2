@@ -15,3 +15,4 @@ class WorkflowState(TypedDict, total=False):
     error: Optional[str]
     _interrupt: bool
     _skip_intent_analyzer: bool
+    _pending_resolutions: List[Dict[str, Any]]

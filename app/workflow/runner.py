@@ -7,7 +7,9 @@ from langgraph.checkpoint.memory import MemorySaver
 from app.workflow.state import WorkflowState
 from app.workflow.nodes import (
     intent_analyzer_node,
+    ingredient_specialist_node,
     chef_node,
+    validator_node,
     maestro_node,
     editor_node,
     should_continue,
@@ -18,19 +20,24 @@ def create_workflow():
     builder = StateGraph(WorkflowState)
 
     builder.add_node("intent_analyzer", intent_analyzer_node)
+    builder.add_node("ingredient_specialist", ingredient_specialist_node)
     builder.add_node("chef", chef_node)
+    builder.add_node("validator", validator_node)
     builder.add_node("maestro", maestro_node)
     builder.add_node("editor", editor_node)
 
     builder.add_conditional_edges(
         "intent_analyzer",
         should_continue,
-        {"continue": "chef", "pause": END}
+        {"continue": "ingredient_specialist", "pause": END}
     )
 
-    builder.add_edge("chef", "maestro")
+    builder.add_edge("ingredient_specialist", "chef")
+    builder.add_edge("chef", "validator")
+    builder.add_edge("validator", "maestro")
     builder.add_edge("maestro", "editor")
     builder.add_edge("editor", END)
+
     builder.set_entry_point("intent_analyzer")
 
     checkpointer = MemorySaver()
@@ -45,11 +52,9 @@ class WorkflowRunner:
         self._event_callback: Optional[Callable[[str, dict], Awaitable[None]]] = None
 
     def set_event_callback(self, callback: Callable[[str, dict], Awaitable[None]]):
-        """Define uma função assíncrona para receber eventos do workflow."""
         self._event_callback = callback
 
     async def _emit_event(self, order_id: str, event: dict):
-        """Emite um evento via callback, se definido."""
         if self._event_callback:
             await self._event_callback(order_id, event)
 
@@ -72,9 +77,6 @@ class WorkflowRunner:
             "error": None,
         }
 
-        # Opcional: emitir evento de início
-        # asyncio.create_task(self._emit_event(order_id, {"type": "workflow_started"}))
-
         result = self.graph.invoke(initial_state, config=config)
         print(f">>> [RUNNER] Resultado do start: {result}")
 
@@ -85,6 +87,8 @@ class WorkflowRunner:
                 "order_id": order_id,
                 "intentions": result.get("intentions", []),
                 "current_step": result.get("current_step", ""),
+                "error": result.get("error"),
+                "pending_resolutions": result.get("_pending_resolutions", []),  # <-- NOVO
             }
 
         return {
@@ -127,9 +131,6 @@ class WorkflowRunner:
         result = self.graph.invoke(None, config=config)
         print(f">>> [RUNNER] Resultado da retomada: {result}")
 
-        # Opcional: emitir evento de conclusão
-        # asyncio.create_task(self._emit_event(order_id, {"type": "workflow_completed"}))
-
         return {
             "status": "completed",
             "order_id": order_id,
@@ -148,11 +149,10 @@ class WorkflowRunner:
         return state.values
 
 
-# 🔥 Singleton (fora da classe)
+# 🔥 Singleton
 _default_runner: Optional[WorkflowRunner] = None
 
 def get_workflow_runner() -> WorkflowRunner:
-    """Retorna a instância única do WorkflowRunner."""
     global _default_runner
     if _default_runner is None:
         _default_runner = WorkflowRunner()
